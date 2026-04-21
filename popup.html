@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <span class="logo">H</span>
+    <div class="header-text">
+      <div class="app-name">H-Structuur Checker</div>
+      <div class="app-desc">Heading-hi&#235;rarchie analyse</div>
+    </div>
+  </div>
+  <div class="sep"></div>
+  <div class="content">
+    <p id="status" class="status">Laden&hellip;</p>
+    <button id="btn-toggle" class="btn btn-primary" disabled>Laden&hellip;</button>
+    <button id="btn-rerun" class="btn btn-secondary" style="display:none">&#8635; Opnieuw analyseren</button>
+  </div>
+  <div class="sep"></div>
+  <ul class="tips">
+    <li>Klik op een heading in de outline &rarr; scroll ernaar toe</li>
+    <li>Knop <strong>Labels</strong> verbergt de inline H-tags</li>
+    <li>Ideaal: 1&times; H1, daarna H2&rarr;H3&rarr;H4 zonder sprongen</li>
+    <li>H1 = hoofd-keyword voor SEO &amp; schermlezers</li>
+  </ul>
+  <script src="popup.js"></script>
+</body>
+</html>
