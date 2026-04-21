@@ -2,29 +2,197 @@
 <html lang="nl">
 <head>
   <meta charset="UTF-8">
-  <link rel="stylesheet" href="popup.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>H-structuur Checker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      width: 260px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+      background: #1a202c;
+      color: #e2e8f0;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 16px;
+      background: #2d3748;
+      border-bottom: 1px solid #4a5568;
+    }
+
+    header svg {
+      width: 18px;
+      height: 18px;
+      color: #63b3ed;
+      flex-shrink: 0;
+    }
+
+    h1 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .subtitle {
+      font-size: 11px;
+      color: #a0aec0;
+      margin-top: 1px;
+    }
+
+    .section {
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .section-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: #718096;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 2px;
+    }
+
+    button {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 6px;
+      border: none;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background .15s;
+    }
+
+    button svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+
+    .btn-primary {
+      background: #2b6cb0;
+      color: #fff;
+    }
+    .btn-primary:hover { background: #2c5282; }
+
+    .btn-secondary {
+      background: #2d3748;
+      color: #e2e8f0;
+    }
+    .btn-secondary:hover { background: #4a5568; }
+
+    .btn-danger {
+      background: #742a2a;
+      color: #fed7d7;
+    }
+    .btn-danger:hover { background: #9b2c2c; }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      background: #2d3748;
+      border-radius: 6px;
+    }
+
+    .toggle-row span {
+      font-size: 12px;
+      color: #e2e8f0;
+    }
+
+    .switch {
+      position: relative;
+      width: 34px;
+      height: 18px;
+      flex-shrink: 0;
+    }
+
+    .switch input { opacity: 0; width: 0; height: 0; }
+
+    .slider {
+      position: absolute;
+      inset: 0;
+      background: #4a5568;
+      border-radius: 34px;
+      cursor: pointer;
+      transition: background .2s;
+    }
+
+    .slider:before {
+      content: "";
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      left: 3px;
+      top: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform .2s;
+    }
+
+    input:checked + .slider { background: #3182ce; }
+    input:checked + .slider:before { transform: translateX(16px); }
+
+    footer {
+      border-top: 1px solid #2d3748;
+      padding: 10px 16px;
+      font-size: 10px;
+      color: #4a5568;
+      text-align: center;
+    }
+  </style>
 </head>
 <body>
-  <div class="header">
-    <span class="logo">H</span>
-    <div class="header-text">
-      <div class="app-name">H-Structuur Checker</div>
-      <div class="app-desc">Heading-hi&#235;rarchie analyse</div>
+  <header>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <path d="M4 6h16M4 12h16M4 18h10"/>
+    </svg>
+    <div>
+      <h1>H-structuur Checker</h1>
+      <div class="subtitle">Analyseer heading-hiërarchie</div>
+    </div>
+  </header>
+
+  <div class="section">
+    <div class="section-label">Paneel</div>
+    <button class="btn-primary" id="btn-toggle">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+        <path d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+      </svg>
+      Paneel tonen / verbergen
+    </button>
+    <button class="btn-secondary" id="btn-refresh">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+      </svg>
+      Analyse heruitvoeren
+    </button>
+  </div>
+
+  <div class="section">
+    <div class="section-label">Opties</div>
+    <div class="toggle-row">
+      <span>Inline H-badges tonen</span>
+      <label class="switch">
+        <input type="checkbox" id="toggle-badges" checked>
+        <span class="slider"></span>
+      </label>
     </div>
   </div>
-  <div class="sep"></div>
-  <div class="content">
-    <p id="status" class="status">Laden&hellip;</p>
-    <button id="btn-toggle" class="btn btn-primary" disabled>Laden&hellip;</button>
-    <button id="btn-rerun" class="btn btn-secondary" style="display:none">&#8635; Opnieuw analyseren</button>
-  </div>
-  <div class="sep"></div>
-  <ul class="tips">
-    <li>Klik op een heading in de outline &rarr; scroll ernaar toe</li>
-    <li>Knop <strong>Labels</strong> verbergt de inline H-tags</li>
-    <li>Ideaal: 1&times; H1, daarna H2&rarr;H3&rarr;H4 zonder sprongen</li>
-    <li>H1 = hoofd-keyword voor SEO &amp; schermlezers</li>
-  </ul>
+
+  <footer>H-structuur Checker v1.0 &mdash; voor websitebouwers</footer>
+
   <script src="popup.js"></script>
 </body>
 </html>
