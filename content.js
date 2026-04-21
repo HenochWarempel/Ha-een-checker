@@ -1,317 +1,522 @@
 (() => {
-  'use strict';
+  "use strict";
 
-  const HOST_ID = 'hsc-shadow-host';
-  if (document.getElementById(HOST_ID)) return;
+  const ID = "hsc";
+  const LEVELS = [1, 2, 3, 4, 5, 6];
+  const SELECTOR = LEVELS.map(n => `h${n}`).join(",");
 
-  const LEVELS = {
-    1: { color: '#f87171', bg: 'rgba(248,113,113,0.15)', border: 'rgba(248,113,113,0.35)' },
-    2: { color: '#fb923c', bg: 'rgba(251,146,60,0.15)',  border: 'rgba(251,146,60,0.35)' },
-    3: { color: '#fbbf24', bg: 'rgba(251,191,36,0.15)',  border: 'rgba(251,191,36,0.35)' },
-    4: { color: '#4ade80', bg: 'rgba(74,222,128,0.15)',  border: 'rgba(74,222,128,0.35)' },
-    5: { color: '#60a5fa', bg: 'rgba(96,165,250,0.15)',  border: 'rgba(96,165,250,0.35)' },
-    6: { color: '#c084fc', bg: 'rgba(192,132,252,0.15)', border: 'rgba(192,132,252,0.35)' },
-  };
+  // ── State ──────────────────────────────────────────────────────────────
+  let panelVisible = false;
+  let activeTab = "issues";
+  let headings = [];
+  let issues = [];
+  let badgesInjected = false;
 
-  const trunc = (s, n) => { const t = s.trim().replace(/\s+/g, ' '); return t.length > n ? t.slice(0, n) + '…' : t; };
-  const esc   = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  // ── Gather headings ────────────────────────────────────────────────────
+  function collectHeadings() {
+    const nodes = [...document.querySelectorAll(SELECTOR)].filter(el => {
+      // skip elements inside our own panel
+      return !el.closest(`#${ID}-panel`);
+    });
 
-  function getHeadings() {
-    return [...document.querySelectorAll('h1,h2,h3,h4,h5,h6')]
-      .filter(el => !el.closest('#' + HOST_ID));
+    headings = nodes.map((el, idx) => ({
+      el,
+      level: parseInt(el.tagName[1], 10),
+      text: el.innerText.trim() || "(lege heading)",
+      idx,
+      isEmpty: !el.innerText.trim(),
+    }));
   }
 
-  function analyze(headings) {
-    const issues = [];
-    if (!headings.length) {
-      return [{ lvl: 'error', msg: 'Geen headings gevonden op deze pagina.' }];
+  // ── Analyse issues ─────────────────────────────────────────────────────
+  function analyseIssues() {
+    issues = [];
+
+    // 1. No headings at all
+    if (headings.length === 0) {
+      issues.push({
+        type: "error",
+        icon: "⛔",
+        title: "Geen headings gevonden",
+        desc: "De pagina bevat geen H1–H6 tags.",
+        idx: null,
+      });
+      return;
     }
 
-    const h1s = headings.filter(h => h.tagName === 'H1');
-    if (!h1s.length) {
-      issues.push({ lvl: 'error', msg: 'Geen H1 aanwezig — iedere pagina heeft één H1 nodig (SEO & toegankelijkheid).' });
-    } else if (h1s.length > 1) {
-      issues.push({ lvl: 'warn', msg: h1s.length + '× H1 gevonden — gebruik bij voorkeur slechts één H1 per pagina.' });
+    // 2. Missing H1
+    const h1s = headings.filter(h => h.level === 1);
+    if (h1s.length === 0) {
+      issues.push({
+        type: "error",
+        icon: "⛔",
+        title: "Geen H1 aanwezig",
+        desc: "Elke pagina hoort precies één H1 te hebben als primaire paginatitel.",
+        idx: null,
+      });
     }
 
-    if (headings[0].tagName !== 'H1') {
-      issues.push({ lvl: 'warn', msg: 'Eerste heading is een ' + headings[0].tagName + ' — pagina’s beginnen idealiter met een H1.' });
+    // 3. Multiple H1s
+    if (h1s.length > 1) {
+      issues.push({
+        type: "warning",
+        icon: "⚠️",
+        title: `Meerdere H1's (${h1s.length}×)`,
+        desc: "Een pagina heeft idealiter slechts één H1. Meerdere H1's kunnen SEO negatief beïnvloeden.",
+        idx: h1s[1].idx,
+      });
     }
 
-    const empty = headings.filter(h => !h.textContent.trim());
-    if (empty.length) {
-      issues.push({ lvl: 'warn', msg: empty.length + ' lege heading' + (empty.length > 1 ? 's' : '') + ' aangetroffen.' });
+    // 4. H1 not first heading
+    if (h1s.length > 0 && headings[0].level !== 1) {
+      issues.push({
+        type: "error",
+        icon: "⛔",
+        title: "H1 staat niet bovenaan",
+        desc: `De eerste heading is een H${headings[0].level}. De H1 zou de eerste heading op de pagina moeten zijn.`,
+        idx: headings[0].idx,
+      });
     }
 
-    for (let i = 1; i < headings.length; i++) {
-      const prev = +headings[i - 1].tagName[1];
-      const curr = +headings[i].tagName[1];
-      if (curr > prev + 1) {
-        const skipped = Array.from({ length: curr - prev - 1 }, (_, k) => 'H' + (prev + 1 + k)).join(', ');
+    // 5. Hierarchy jumps (skipped levels)
+    let prevLevel = 0;
+    for (const h of headings) {
+      if (prevLevel > 0 && h.level > prevLevel + 1) {
         issues.push({
-          lvl: 'warn',
-          msg: 'Niveausprong ' + headings[i-1].tagName + '→' + headings[i].tagName + ': ' + skipped + ' overgeslagen bij “' + trunc(headings[i].textContent, 40) + '”',
-          idx: i,
+          type: "error",
+          icon: "⛔",
+          title: `Hiërarchie-sprong: H${prevLevel} → H${h.level}`,
+          desc: `"${truncate(h.text, 60)}" — niveau H${h.level} volgt direct op H${prevLevel}. Niveau H${prevLevel + 1} wordt overgeslagen.`,
+          idx: h.idx,
+        });
+      }
+      prevLevel = h.level;
+    }
+
+    // 6. Empty headings
+    for (const h of headings) {
+      if (h.isEmpty) {
+        issues.push({
+          type: "warning",
+          icon: "⚠️",
+          title: `Lege H${h.level}`,
+          desc: "Een heading zonder tekst is zinloos voor zoekmachines en schermlezers.",
+          idx: h.idx,
         });
       }
     }
 
-    return issues;
+    // 7. Hidden headings (visibility:hidden / display:none)
+    for (const h of headings) {
+      const style = window.getComputedStyle(h.el);
+      if (style.display === "none" || style.visibility === "hidden") {
+        issues.push({
+          type: "warning",
+          icon: "⚠️",
+          title: `Verborgen H${h.level}`,
+          desc: `"${truncate(h.text, 60)}" is niet zichtbaar (display:none of visibility:hidden).`,
+          idx: h.idx,
+        });
+      }
+    }
+
+    // 8. Very long headings (> 120 chars — might indicate misuse)
+    for (const h of headings) {
+      if (h.text.length > 120) {
+        issues.push({
+          type: "warning",
+          icon: "⚠️",
+          title: `Erg lange H${h.level} (${h.text.length} tekens)`,
+          desc: `"${truncate(h.text, 80)}" — lange headings zijn moeilijk leesbaar en minder SEO-vriendelijk.`,
+          idx: h.idx,
+        });
+      }
+    }
+
+    // 9. Heading inside heading (bad HTML)
+    for (const h of headings) {
+      const parent = h.el.closest(LEVELS.filter(l => l !== h.level).map(l => `h${l}`).join(","));
+      if (parent) {
+        issues.push({
+          type: "error",
+          icon: "⛔",
+          title: `H${h.level} genest in een andere heading`,
+          desc: "Headings mogen niet in andere headings genest worden; dit is ongeldige HTML.",
+          idx: h.idx,
+        });
+      }
+    }
+
+    // 10. Level used nowhere (informational, only check H2 since H1 is already checked)
+    const usedLevels = new Set(headings.map(h => h.level));
+    // Check for gaps in used levels between min and max
+    const minLevel = Math.min(...usedLevels);
+    const maxLevel = Math.max(...usedLevels);
+    for (let l = minLevel; l <= maxLevel; l++) {
+      if (!usedLevels.has(l)) {
+        issues.push({
+          type: "info",
+          icon: "ℹ️",
+          title: `H${l} niet gebruikt`,
+          desc: `Niveau H${l} wordt nergens gebruikt, terwijl H${l - 1} en H${l + 1} wel aanwezig zijn.`,
+          idx: null,
+        });
+      }
+    }
   }
 
-  function addBadges(headings) {
-    headings.forEach(h => {
-      if (h.querySelector('.hsc-badge')) return;
-      const level = +h.tagName[1];
-      const c = LEVELS[level];
-      const badge = document.createElement('span');
-      badge.className = 'hsc-badge';
-      badge.textContent = h.tagName;
-      badge.style.cssText = 'color:' + c.color + ';background:' + c.bg + ';border-color:' + c.border;
-      h.insertBefore(badge, h.firstChild);
-    });
+  // ── Badge injection ────────────────────────────────────────────────────
+  function injectBadges() {
+    removeBadges();
+    const errorIdxs = new Set(issues.filter(i => i.idx !== null).map(i => i.idx));
+
+    for (const h of headings) {
+      const badge = document.createElement("span");
+      badge.className = `${ID}-badge`;
+      if (errorIdxs.has(h.idx)) badge.classList.add(`${ID}-badge--error`);
+      badge.dataset.level = h.level;
+      badge.textContent = `H${h.level}`;
+      badge.title = `H${h.level} heading`;
+
+      badge.addEventListener("click", (e) => {
+        e.stopPropagation();
+        openPanel();
+        highlightHeading(h.el);
+      });
+
+      h.el.prepend(badge);
+    }
+    badgesInjected = true;
   }
 
   function removeBadges() {
-    document.querySelectorAll('.hsc-badge').forEach(b => b.remove());
+    document.querySelectorAll(`.${ID}-badge`).forEach(b => b.remove());
+    badgesInjected = false;
   }
 
-  const PANEL_CSS = `
-    * { box-sizing: border-box; }
+  // ── Panel HTML ─────────────────────────────────────────────────────────
+  function buildPanel() {
+    const panel = document.createElement("div");
+    panel.id = `${ID}-panel`;
+    panel.innerHTML = panelHTML();
+    document.body.appendChild(panel);
 
-    .panel {
-      background: #0f172a;
-      color: #e2e8f0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 13px;
-      box-shadow: 0 4px 32px rgba(0,0,0,0.6);
-      border-bottom: 1px solid #1e293b;
-      max-height: 55vh;
-      display: flex;
-      flex-direction: column;
-    }
+    // wire tabs
+    panel.querySelectorAll(".hsc-tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        activeTab = tab.dataset.tab;
+        renderPanelBody();
+        panel.querySelectorAll(".hsc-tab").forEach(t => t.classList.toggle("hsc-tab--active", t.dataset.tab === activeTab));
+      });
+    });
 
-    .header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 8px 14px;
-      background: #080f1f;
-      border-bottom: 1px solid #1e293b;
-      flex-shrink: 0;
-      gap: 12px;
-    }
+    // close button
+    panel.querySelector(`#${ID}-close`).addEventListener("click", closePanel);
 
-    .title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-
-    .logo {
-      width: 22px; height: 22px;
-      background: linear-gradient(135deg, #6366f1, #8b5cf6);
-      border-radius: 5px;
-      display: inline-flex; align-items: center; justify-content: center;
-      font-size: 13px; font-weight: 800; color: #fff; flex-shrink: 0;
-    }
-
-    .app-name { font-weight: 600; font-size: 13px; color: #f1f5f9; white-space: nowrap; }
-
-    .pill {
-      font-size: 11px; padding: 2px 9px; border-radius: 999px;
-      font-weight: 500; white-space: nowrap;
-    }
-    .pill-ok   { background: rgba(34,197,94,0.15); color: #86efac; }
-    .pill-warn { background: rgba(250,204,21,0.15); color: #fde047; }
-    .pill-err  { background: rgba(239,68,68,0.15);  color: #fca5a5; }
-
-    .counts { display: flex; gap: 5px; flex-wrap: wrap; }
-    .chip {
-      font-size: 10px; font-weight: 700; padding: 1px 6px;
-      border-radius: 3px; border: 1px solid;
-    }
-
-    .actions { display: flex; gap: 6px; flex-shrink: 0; }
-
-    .btn {
-      all: unset;
-      box-sizing: border-box;
-      background: rgba(255,255,255,0.07);
-      border: 1px solid rgba(255,255,255,0.11);
-      color: #94a3b8; padding: 4px 11px; border-radius: 5px;
-      cursor: pointer; font-size: 12px;
-      transition: background 0.12s, color 0.12s;
-      white-space: nowrap;
-    }
-    .btn:hover { background: rgba(255,255,255,0.13); color: #e2e8f0; }
-    .btn-on { background: rgba(99,102,241,0.25) !important; border-color: rgba(99,102,241,0.5) !important; color: #a5b4fc !important; }
-    .btn-close:hover { background: rgba(239,68,68,0.2) !important; color: #fca5a5 !important; border-color: rgba(239,68,68,0.4) !important; }
-
-    .body { display: flex; overflow: hidden; flex: 1; min-height: 0; }
-
-    .col { padding: 10px 14px; overflow-y: auto; }
-    .col-issues  { min-width: 260px; max-width: 380px; border-right: 1px solid #1e293b; flex-shrink: 0; }
-    .col-outline { flex: 1; min-width: 0; }
-    .col-full    { border-right: none; }
-
-    .col-title {
-      font-size: 10px; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.1em; color: #475569; margin-bottom: 8px;
-    }
-    .col-title span { font-weight: 400; text-transform: none; letter-spacing: 0; color: #334155; }
-
-    .issue {
-      display: flex; align-items: flex-start; gap: 7px;
-      padding: 6px 9px; border-radius: 6px; margin-bottom: 5px;
-      font-size: 12px; line-height: 1.45;
-    }
-    .issue-err  { background: rgba(239,68,68,0.1); color: #fca5a5; }
-    .issue-warn { background: rgba(250,204,21,0.08); color: #fde047; }
-    .issue-icon { flex-shrink: 0; font-size: 11px; margin-top: 1px; }
-
-    .outline { display: flex; flex-direction: column; gap: 1px; }
-
-    .row {
-      display: flex; align-items: center; gap: 8px;
-      padding: 4px 8px; border-radius: 4px; cursor: pointer;
-      transition: background 0.1s;
-    }
-    .row:hover { background: rgba(255,255,255,0.05); }
-
-    .tag {
-      font-size: 10px; font-weight: 700;
-      padding: 1px 5px; border-radius: 3px;
-      min-width: 22px; text-align: center; border: 1px solid;
-      flex-shrink: 0;
-    }
-
-    .text {
-      font-size: 12px; color: #94a3b8;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .text-empty { color: #475569; font-style: italic; }
-  `;
-
-  function buildPanelHTML(headings, issues) {
-    const errCount  = issues.filter(i => i.lvl === 'error').length;
-    const warnCount = issues.filter(i => i.lvl === 'warn').length;
-    const pillClass = errCount ? 'pill-err' : warnCount ? 'pill-warn' : 'pill-ok';
-    const pillText  = (errCount || warnCount)
-      ? [errCount  && (errCount  + ' fout' + (errCount  > 1 ? 'en' : '')),
-         warnCount && (warnCount + ' waarschuwing' + (warnCount > 1 ? 'en' : ''))]
-          .filter(Boolean).join(' · ')
-      : '✓ Geen problemen';
-
-    const counts = [1,2,3,4,5,6].map(n => {
-      const cnt = headings.filter(h => h.tagName === 'H' + n).length;
-      if (!cnt && n > 3) return '';
-      const c = LEVELS[n];
-      return '<span class="chip" style="color:' + c.color + ';background:' + c.bg + ';border-color:' + c.border + '">H' + n + ':' + cnt + '</span>';
-    }).join('');
-
-    const issuesHTML = issues.map(issue =>
-      '<div class="issue issue-' + (issue.lvl === 'error' ? 'err' : 'warn') + '">'
-      + '<span class="issue-icon">' + (issue.lvl === 'error' ? '✖' : '⚠') + '</span>'
-      + '<span>' + esc(issue.msg) + '</span>'
-      + '</div>'
-    ).join('');
-
-    const outlineHTML = headings.map((h, i) => {
-      const level = +h.tagName[1];
-      const c = LEVELS[level];
-      const text = h.textContent.trim().replace(/\s+/g, ' ');
-      const indent = (level - 1) * 14;
-      return '<div class="row" data-idx="' + i + '" style="margin-left:' + indent + 'px">'
-        + '<span class="tag" style="color:' + c.color + ';background:' + c.bg + ';border-color:' + c.border + '">' + h.tagName + '</span>'
-        + '<span class="text' + (text ? '' : ' text-empty') + '">' + (text ? esc(trunc(text, 70)) : '(leeg)') + '</span>'
-        + '</div>';
-    }).join('');
-
-    return '<div class="panel">'
-      + '<div class="header">'
-        + '<div class="title-row">'
-          + '<span class="logo">H</span>'
-          + '<span class="app-name">Structuur Checker</span>'
-          + '<span class="pill ' + pillClass + '">' + pillText + '</span>'
-          + '<div class="counts">' + counts + '</div>'
-        + '</div>'
-        + '<div class="actions">'
-          + '<button class="btn btn-on" id="btn-labels">Labels</button>'
-          + '<button class="btn" id="btn-collapse">▲ Inklappen</button>'
-          + '<button class="btn btn-close" id="btn-close">✕</button>'
-        + '</div>'
-      + '</div>'
-      + '<div class="body" id="body">'
-        + (issues.length
-          ? '<div class="col col-issues"><div class="col-title">Problemen</div>' + issuesHTML + '</div>'
-          : '')
-        + '<div class="col col-outline' + (issues.length === 0 ? ' col-full' : '') + '">'
-          + '<div class="col-title">Paginastructuur <span>' + headings.length + ' headings</span></div>'
-          + '<div class="outline" id="outline">' + outlineHTML + '</div>'
-        + '</div>'
-      + '</div>'
-    + '</div>';
+    renderPanelBody();
+    return panel;
   }
 
+  function panelHTML() {
+    const errorCount = issues.filter(i => i.type === "error").length;
+    const warnCount  = issues.filter(i => i.type === "warning").length;
+
+    const pills = [
+      errorCount ? `<span class="hsc-pill hsc-pill--error">⛔ ${errorCount} fout${errorCount > 1 ? "en" : ""}</span>` : "",
+      warnCount  ? `<span class="hsc-pill hsc-pill--warning">⚠️ ${warnCount} waarschuwing${warnCount > 1 ? "en" : ""}</span>` : "",
+      !errorCount && !warnCount ? `<span class="hsc-pill hsc-pill--ok">✓ Geen problemen</span>` : "",
+    ].join("");
+
+    const issueTabBadge = errorCount + warnCount > 0
+      ? `<span class="hsc-tab-badge">${errorCount + warnCount}</span>`
+      : "";
+
+    return `
+      <div id="${ID}-panel-header">
+        <div id="${ID}-panel-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M4 6h16M4 12h16M4 18h10"/>
+          </svg>
+          H-structuur Checker
+        </div>
+        <div id="${ID}-panel-summary">${pills}</div>
+        <button id="${ID}-close" title="Sluiten">✕</button>
+      </div>
+      <div id="${ID}-tabs">
+        <button class="hsc-tab ${activeTab === "issues" ? "hsc-tab--active" : ""}" data-tab="issues">
+          Problemen ${issueTabBadge}
+        </button>
+        <button class="hsc-tab ${activeTab === "tree" ? "hsc-tab--active" : ""}" data-tab="tree">
+          Heading-boom
+        </button>
+        <button class="hsc-tab ${activeTab === "stats" ? "hsc-tab--active" : ""}" data-tab="stats">
+          Statistieken
+        </button>
+      </div>
+      <div id="${ID}-panel-body"></div>
+    `;
+  }
+
+  function renderPanelBody() {
+    const body = document.getElementById(`${ID}-panel-body`);
+    if (!body) return;
+
+    if (activeTab === "issues")  body.innerHTML = renderIssuesTab();
+    if (activeTab === "tree")    body.innerHTML = renderTreeTab();
+    if (activeTab === "stats")   body.innerHTML = renderStatsTab();
+
+    // Attach click-to-scroll on issue items
+    body.querySelectorAll(".hsc-issue[data-idx]").forEach(el => {
+      el.addEventListener("click", () => {
+        const h = headings[parseInt(el.dataset.idx, 10)];
+        if (h) highlightHeading(h.el);
+      });
+    });
+
+    // Attach click-to-scroll on tree items
+    body.querySelectorAll(".hsc-tree-item[data-idx]").forEach(el => {
+      el.addEventListener("click", () => {
+        const h = headings[parseInt(el.dataset.idx, 10)];
+        if (h) highlightHeading(h.el);
+      });
+    });
+  }
+
+  function renderIssuesTab() {
+    if (issues.length === 0) {
+      return `<div class="hsc-empty"><div class="hsc-empty-icon">✅</div>Geen problemen gevonden! De H-structuur ziet er goed uit.</div>`;
+    }
+
+    const rows = issues.map(issue => `
+      <div class="hsc-issue hsc-issue--${issue.type}" ${issue.idx !== null ? `data-idx="${issue.idx}"` : ""}>
+        <div class="hsc-issue-icon">${issue.icon}</div>
+        <div class="hsc-issue-text">
+          <div class="hsc-issue-title">${escHtml(issue.title)}</div>
+          <div class="hsc-issue-desc">${escHtml(issue.desc)}</div>
+        </div>
+      </div>
+    `).join("");
+
+    return `<div class="hsc-issue-list">${rows}</div>`;
+  }
+
+  function renderTreeTab() {
+    if (headings.length === 0) {
+      return `<div class="hsc-empty"><div class="hsc-empty-icon">🔍</div>Geen headings gevonden op deze pagina.</div>`;
+    }
+
+    const errorIdxs = new Set(issues.filter(i => i.idx !== null).map(i => i.idx));
+
+    const rows = headings.map(h => {
+      const indent = (h.level - 1) * 16;
+      const hasError = errorIdxs.has(h.idx);
+      return `
+        <div class="hsc-tree-item ${hasError ? "hsc-tree-item--error" : ""}" data-idx="${h.idx}" style="padding-left:${6 + indent}px" title="Klik om naar heading te scrollen">
+          <span class="hsc-tree-label" data-level="${h.level}">H${h.level}</span>
+          <span class="hsc-tree-text">${escHtml(h.text)}</span>
+          ${hasError ? `<span class="hsc-tree-error-icon">⚠</span>` : ""}
+        </div>
+      `;
+    }).join("");
+
+    return `<div class="hsc-tree">${rows}</div>`;
+  }
+
+  function renderStatsTab() {
+    const counts = {};
+    LEVELS.forEach(l => { counts[l] = 0; });
+    headings.forEach(h => { counts[h.level]++; });
+
+    const cards = LEVELS.map(l => {
+      const colors = ["#e53e3e","#dd6b20","#d69e2e","#38a169","#3182ce","#805ad5"];
+      return `
+        <div class="hsc-info-card">
+          <div class="hsc-info-card-num" style="color:${colors[l-1]}">${counts[l]}</div>
+          <div class="hsc-info-card-label">H${l} headings</div>
+        </div>
+      `;
+    }).join("");
+
+    const totalIssues = issues.length;
+    const errorCount  = issues.filter(i => i.type === "error").length;
+    const warnCount   = issues.filter(i => i.type === "warning").length;
+    const infoCount   = issues.filter(i => i.type === "info").length;
+
+    return `
+      <div style="margin-bottom:12px">
+        <div style="font-size:11px;font-weight:700;color:#718096;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Heading-verdeling</div>
+        <div class="hsc-info-grid">${cards}</div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:#718096;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Bevindingen</div>
+        <div class="hsc-info-grid">
+          <div class="hsc-info-card">
+            <div class="hsc-info-card-num" style="color:#fc8181">${errorCount}</div>
+            <div class="hsc-info-card-label">Fouten</div>
+          </div>
+          <div class="hsc-info-card">
+            <div class="hsc-info-card-num" style="color:#f6ad55">${warnCount}</div>
+            <div class="hsc-info-card-label">Waarschuwingen</div>
+          </div>
+          <div class="hsc-info-card">
+            <div class="hsc-info-card-num" style="color:#63b3ed">${infoCount}</div>
+            <div class="hsc-info-card-label">Informatie</div>
+          </div>
+          <div class="hsc-info-card">
+            <div class="hsc-info-card-num" style="color:#e2e8f0">${headings.length}</div>
+            <div class="hsc-info-card-label">Headings totaal</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ── Toggle button ──────────────────────────────────────────────────────
+  function buildToggleButton() {
+    const btn = document.createElement("button");
+    btn.id = `${ID}-toggle`;
+    btn.title = "H-structuur Checker";
+    btn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M4 6h16M4 12h16M4 18h10"/>
+      </svg>
+      <span id="${ID}-toggle-badge"></span>
+    `;
+    btn.addEventListener("click", togglePanel);
+    document.body.appendChild(btn);
+    return btn;
+  }
+
+  // ── Panel open / close ─────────────────────────────────────────────────
+  function openPanel() {
+    panelVisible = true;
+    const panel = document.getElementById(`${ID}-panel`);
+    if (panel) {
+      panel.classList.add(`${ID}-panel--visible`);
+      document.body.style.marginTop = panel.offsetHeight + "px";
+    }
+    const btn = document.getElementById(`${ID}-toggle`);
+    if (btn) btn.classList.add(`${ID}-toggle--active`);
+  }
+
+  function closePanel() {
+    panelVisible = false;
+    const panel = document.getElementById(`${ID}-panel`);
+    if (panel) {
+      panel.classList.remove(`${ID}-panel--visible`);
+      document.body.style.marginTop = "";
+    }
+    const btn = document.getElementById(`${ID}-toggle`);
+    if (btn) btn.classList.remove(`${ID}-toggle--active`);
+  }
+
+  function togglePanel() {
+    if (panelVisible) closePanel();
+    else openPanel();
+  }
+
+  // ── Highlight / scroll-to ──────────────────────────────────────────────
+  function highlightHeading(el) {
+    closePanel();
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.remove("hsc-highlight");
+    void el.offsetWidth; // reflow to restart animation
+    el.classList.add("hsc-highlight");
+    setTimeout(() => el.classList.remove("hsc-highlight"), 1400);
+  }
+
+  // ── Helpers ────────────────────────────────────────────────────────────
+  function truncate(str, max) {
+    return str.length > max ? str.slice(0, max) + "…" : str;
+  }
+
+  function escHtml(str) {
+    return str
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // ── Init ───────────────────────────────────────────────────────────────
   function init() {
-    const headings = getHeadings();
-    const issues   = analyze(headings);
+    // Prevent double injection
+    if (document.getElementById(`${ID}-panel`)) return;
 
-    addBadges(headings);
+    collectHeadings();
+    analyseIssues();
+    injectBadges();
+    buildPanel();
+    const btn = buildToggleButton();
 
-    const host = document.createElement('div');
-    host.id = HOST_ID;
-    Object.assign(host.style, {
-      position: 'fixed', top: '0', left: '0', right: '0',
-      zIndex: '2147483647', display: 'block',
-    });
+    // Show issue count badge on toggle button
+    const totalProblems = issues.filter(i => i.type !== "info").length;
+    const badge = document.getElementById(`${ID}-toggle-badge`);
+    if (badge && totalProblems > 0) {
+      badge.textContent = totalProblems;
+      badge.classList.add("hsc-visible");
+    }
 
-    const shadow = host.attachShadow({ mode: 'open' });
-
-    const styleEl = document.createElement('style');
-    styleEl.textContent = PANEL_CSS;
-    shadow.appendChild(styleEl);
-
-    const wrapper = document.createElement('div');
-    wrapper.innerHTML = buildPanelHTML(headings, issues);
-    shadow.appendChild(wrapper);
-
-    (document.body || document.documentElement).prepend(host);
-
-    shadow.getElementById('btn-close').addEventListener('click', () => {
-      host.remove();
-      removeBadges();
-    });
-
-    let collapsed = false;
-    const bodyEl     = shadow.getElementById('body');
-    const collapseBtn = shadow.getElementById('btn-collapse');
-    collapseBtn.addEventListener('click', () => {
-      collapsed = !collapsed;
-      bodyEl.style.display = collapsed ? 'none' : '';
-      collapseBtn.textContent = collapsed ? '▼ Uitklappen' : '▲ Inklappen';
-    });
-
-    let labelsOn = true;
-    const labelBtn = shadow.getElementById('btn-labels');
-    labelBtn.addEventListener('click', () => {
-      labelsOn = !labelsOn;
-      document.querySelectorAll('.hsc-badge').forEach(b => { b.style.display = labelsOn ? '' : 'none'; });
-      labelBtn.classList.toggle('btn-on', labelsOn);
-    });
-
-    shadow.getElementById('outline').addEventListener('click', e => {
-      const row = e.target.closest('.row');
-      if (!row) return;
-      const h = headings[+row.dataset.idx];
-      if (!h) return;
-      h.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      const prev = { outline: h.style.outline, outlineOffset: h.style.outlineOffset };
-      h.style.outline = '2px solid #6366f1';
-      h.style.outlineOffset = '4px';
-      setTimeout(() => {
-        h.style.outline = prev.outline;
-        h.style.outlineOffset = prev.outlineOffset;
-      }, 2000);
-    });
+    // Auto-open panel if there are issues
+    if (totalProblems > 0) openPanel();
   }
+
+  // ── Message from popup ─────────────────────────────────────────────────
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === "toggle") togglePanel();
+    if (msg.action === "refresh") {
+      document.getElementById(`${ID}-panel`)?.remove();
+      document.getElementById(`${ID}-toggle`)?.remove();
+      document.body.style.marginTop = "";
+      panelVisible = false;
+      badgesInjected = false;
+      removeBadges();
+      init();
+    }
+    if (msg.action === "hideBadges") removeBadges();
+    if (msg.action === "showBadges") {
+      if (!badgesInjected) injectBadges();
+    }
+  });
+
+  // ── Observe DOM changes (for SPAs) ────────────────────────────────────
+  let debounceTimer;
+  const observer = new MutationObserver(() => {
+    clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      const panel = document.getElementById(`${ID}-panel`);
+      if (!panel) return;
+      collectHeadings();
+      analyseIssues();
+      if (badgesInjected) injectBadges();
+      // Rebuild panel header + body to reflect updated issues
+      panel.querySelector(`#${ID}-panel-header`).outerHTML; // keep reference
+      const newHeader = document.createElement("div");
+      newHeader.id = `${ID}-panel-header`;
+      newHeader.innerHTML = panelHTML().match(/<div id="hsc-panel-header">([\s\S]*?)<\/div>/)?.[0] ?? "";
+      // Easier: rebuild whole panel inner
+      panel.innerHTML = panelHTML();
+      panel.querySelectorAll(".hsc-tab").forEach(tab => {
+        tab.addEventListener("click", () => {
+          activeTab = tab.dataset.tab;
+          renderPanelBody();
+          panel.querySelectorAll(".hsc-tab").forEach(t => t.classList.toggle("hsc-tab--active", t.dataset.tab === activeTab));
+        });
+      });
+      panel.querySelector(`#${ID}-close`).addEventListener("click", closePanel);
+      renderPanelBody();
+
+      // update badge
+      const totalProblems = issues.filter(i => i.type !== "info").length;
+      const badge = document.getElementById(`${ID}-toggle-badge`);
+      if (badge) {
+        badge.textContent = totalProblems || "";
+        badge.classList.toggle("hsc-visible", totalProblems > 0);
+      }
+    }, 800);
+  });
+
+  observer.observe(document.body, { childList: true, subtree: true });
 
   init();
 })();
